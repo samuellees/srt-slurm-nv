@@ -21,6 +21,7 @@ env/
 ENV/
 .venv/
 .venv-compute/
+.venv-compute.lock
 
 # uv
 .uv/

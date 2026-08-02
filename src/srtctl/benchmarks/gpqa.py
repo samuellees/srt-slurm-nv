@@ -25,6 +25,8 @@ class GPQARunner(BenchmarkRunner):
         - benchmark.max_tokens: Max tokens per response (default: 32768)
         - benchmark.repeat: Number of repeats (default: 8)
         - benchmark.num_threads: Concurrent threads (default: 128)
+        - benchmark.temperature: Sampling temperature (default: 0.0)
+        - benchmark.top_p: Nucleus sampling probability (default: 1.0)
     """
 
     @property
@@ -59,4 +61,6 @@ class GPQARunner(BenchmarkRunner):
             str(b.max_tokens or 32768),
             str(b.repeat or 8),
             str(b.num_threads or 128),
+            str(b.temperature if b.temperature is not None else 0.0),
+            str(b.top_p if b.top_p is not None else 1.0),
         ]

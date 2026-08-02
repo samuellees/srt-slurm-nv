@@ -812,6 +812,63 @@ class TestLMEvalRunner:
         ]
 
 
+class TestGPQARunner:
+    """Test GPQA sampling arguments are passed to the harness."""
+
+    def _config(self, **benchmark_kwargs):
+        from srtctl.core.schema import BenchmarkConfig, ModelConfig, ResourceConfig, SrtConfig
+
+        return SrtConfig(
+            name="test",
+            model=ModelConfig(path="/model", container="/image", precision="fp8"),
+            resources=ResourceConfig(gpu_type="gb200"),
+            benchmark=BenchmarkConfig(type="gpqa", **benchmark_kwargs),
+        )
+
+    def test_build_command_passes_sampling_arguments(self):
+        """Configured stochastic sampling reaches the shell wrapper."""
+        from unittest.mock import MagicMock
+
+        runner = get_runner("gpqa")
+        runtime = MagicMock()
+        runtime.frontend_port = 8000
+
+        cmd = runner.build_command(
+            self._config(
+                num_examples=198,
+                max_tokens=32768,
+                repeat=8,
+                num_threads=32,
+                temperature=0.6,
+                top_p=0.95,
+            ),
+            runtime,
+        )
+
+        assert cmd == [
+            "bash",
+            "/srtctl-benchmarks/gpqa/bench.sh",
+            "http://localhost:8000",
+            "198",
+            "32768",
+            "8",
+            "32",
+            "0.6",
+            "0.95",
+        ]
+
+    def test_build_command_sampling_defaults_preserve_greedy_behavior(self):
+        """Existing configs remain greedy unless sampling is requested."""
+        from unittest.mock import MagicMock
+
+        runtime = MagicMock()
+        runtime.frontend_port = 8000
+
+        cmd = get_runner("gpqa").build_command(self._config(), runtime)
+
+        assert cmd[-2:] == ["0.0", "1.0"]
+
+
 class TestGSM8KRunner:
     """Test the unified GSM8K runner (backend auto-detect)."""
 

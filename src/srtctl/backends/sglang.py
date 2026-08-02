@@ -326,10 +326,9 @@ class SGLangProtocol:
         # Get served model name from config
         served_model_name = self.get_served_model_name(runtime.model_path.name)
 
-        # Determine model path: HF model ID or container mount path
-        # For HF models (hf:prefix), model_path contains the HF model ID (e.g., "facebook/opt-125m")
-        # For local models, model is mounted to /model in the container
-        model_arg = str(runtime.model_path) if runtime.is_hf_model else "/model"
+        # Use the node-local staged path when model staging is enabled.
+        # Otherwise this resolves to the HF model ID or the default /model mount.
+        model_arg = runtime.worker_model_arg
 
         # Start with nsys prefix if provided
         cmd: list[str] = list(nsys_prefix) if nsys_prefix else []

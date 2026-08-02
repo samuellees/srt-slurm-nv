@@ -2901,6 +2901,23 @@ class TestHuggingFaceModelSupport:
         idx = cmd.index("--model-path")
         assert cmd[idx + 1] == "/model"
 
+    def test_sglang_staged_model_uses_node_local_path(self):
+        """SGLang passes the staged node-local path when model staging is enabled."""
+        from unittest.mock import patch
+
+        from srtctl.backends import SGLangProtocol
+
+        backend = SGLangProtocol()
+        process = self._make_process()
+        runtime = self._make_runtime(is_hf=False)
+        runtime.worker_model_arg = "/raid/scratch/models/my-model"
+
+        with patch("srtctl.core.slurm.get_hostname_ip", return_value="10.0.0.1"):
+            cmd = backend.build_worker_command(process=process, endpoint_processes=[process], runtime=runtime)
+
+        idx = cmd.index("--model-path")
+        assert cmd[idx + 1] == "/raid/scratch/models/my-model"
+
     def test_sglang_model_path_not_duplicated_from_config(self):
         """SGLang does not duplicate --model-path when user provides it in sglang_config."""
         from unittest.mock import patch
