@@ -146,17 +146,58 @@ class ProcessRegistry:
 
             return len(self._failed_processes) > 0
 
-    def cleanup(self) -> None:
-        """Terminate all registered processes."""
+    def cleanup(self, grace_timeout: float = 10.0, kill_timeout: float = 5.0) -> None:
+        """Terminate all registered processes within shared time bounds.
+
+        Worker processes are independent ``srun`` steps.  Stopping them one at
+        a time with a per-process timeout can make cleanup scale as
+        ``worker_count * timeout`` and may let surviving worker supervisors
+        restart children after their peers disappear.  Signal every live step
+        first, then wait against one common deadline for the whole registry.
+        """
         with self._lock:
-            logger.info("Cleaning up %d processes...", len(self._processes))
-            for name, proc in self._processes.items():
-                if proc.is_running:
-                    logger.debug("Terminating process: %s", name)
-                    try:
-                        proc.terminate()
-                    except Exception as e:
-                        logger.warning("Failed to terminate %s: %s", name, e)
+            processes = list(self._processes.items())
+
+        logger.info("Cleaning up %d processes...", len(processes))
+        live_processes: list[tuple[str, ManagedProcess]] = []
+        for name, proc in processes:
+            if not proc.is_running:
+                continue
+            live_processes.append((name, proc))
+            logger.debug("Terminating process: %s", name)
+            try:
+                proc.popen.terminate()
+            except Exception as e:
+                logger.warning("Failed to terminate %s: %s", name, e)
+
+        grace_deadline = time.monotonic() + grace_timeout
+        survivors: list[tuple[str, ManagedProcess]] = []
+        for name, proc in live_processes:
+            try:
+                proc.popen.wait(timeout=max(0.0, grace_deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                survivors.append((name, proc))
+            except Exception as e:
+                logger.warning("Failed while waiting for %s to terminate: %s", name, e)
+                survivors.append((name, proc))
+
+        for name, proc in survivors:
+            if not proc.is_running:
+                continue
+            logger.warning("Process %s did not terminate, killing...", name)
+            try:
+                proc.popen.kill()
+            except Exception as e:
+                logger.warning("Failed to kill %s: %s", name, e)
+
+        kill_deadline = time.monotonic() + kill_timeout
+        for name, proc in survivors:
+            try:
+                proc.popen.wait(timeout=max(0.0, kill_deadline - time.monotonic()))
+            except subprocess.TimeoutExpired:
+                logger.error("Process %s is still alive after forced cleanup", name)
+            except Exception as e:
+                logger.warning("Failed while waiting for killed process %s: %s", name, e)
 
     def print_failure_details(self, tail_lines: int = 50) -> None:
         """Print detailed failure information including log tails.

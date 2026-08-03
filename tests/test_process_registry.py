@@ -4,7 +4,7 @@
 """Tests for ProcessRegistry."""
 
 from pathlib import Path
-from subprocess import Popen
+from subprocess import Popen, TimeoutExpired
 from unittest.mock import MagicMock
 
 from srtctl.core.processes import ManagedProcess, ProcessRegistry
@@ -141,3 +141,28 @@ class TestProcessRegistry:
         registry.cleanup()
 
         mock_popen.terminate.assert_called_once()
+
+    def test_cleanup_terminates_all_before_killing_survivors(self):
+        """Cleanup broadcasts TERM before escalating a stuck process."""
+        registry = ProcessRegistry(job_id="test_job")
+        events = []
+
+        stuck = MagicMock(spec=Popen)
+        stuck.poll.return_value = None
+        stuck.pid = 12345
+        stuck.terminate.side_effect = lambda: events.append("terminate_stuck")
+        stuck.wait.side_effect = [TimeoutExpired("stuck", 0), 0]
+        stuck.kill.side_effect = lambda: events.append("kill_stuck")
+
+        healthy = MagicMock(spec=Popen)
+        healthy.poll.return_value = None
+        healthy.pid = 12346
+        healthy.terminate.side_effect = lambda: events.append("terminate_healthy")
+        healthy.wait.return_value = 0
+
+        registry.add_process(ManagedProcess(name="stuck", popen=stuck))
+        registry.add_process(ManagedProcess(name="healthy", popen=healthy))
+        registry.cleanup(grace_timeout=0, kill_timeout=0)
+
+        assert events[:2] == ["terminate_stuck", "terminate_healthy"]
+        assert events[2:] == ["kill_stuck"]
